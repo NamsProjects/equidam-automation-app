@@ -1,0 +1,395 @@
+{
+  "normalize": {
+    "lower": true,
+    "ascii_fold": true,
+    "replace_map": {
+      "&": " and ",
+      "/": " ",
+      "_": " ",
+      "-": " "
+    },
+    "strip_chars": ["$", "%", "#"],
+    "acronyms": {
+      "cogs": "costs of goods sold",
+      "other opex": "other operating expenses",
+      "capex": "capital expenditures",
+      "d&a": "depreciation and amortization",
+      "depr": "depreciation",
+      "depre": "depreciation",
+      "amort": "amortization",
+      "ar": "accounts receivable",
+      "ap": "accounts payable",
+      "ppe": "property plant equipment",
+      "r&d": "research and development",
+      "dta": "deferred tax assets"
+    }
+  },
+
+  "thresholds": {
+    "auto_map": 100,
+    "review_min": 75
+  },
+
+  "ignore_contains": [
+    "gross profit",
+    "ebitda",
+    "ebit",
+    "operating income",
+    "net income",
+    "operating profit",
+    "profit margin",
+    "gross margin"
+  ],
+
+  "exclusion_patterns": {
+    "Taxes": [
+      "compliance",
+      "kyc",
+      "legal fee",
+      "legal expense",
+      "regulatory fee",
+      "dispute",
+      "litigation",
+      "audit fee",
+      "consulting"
+    ],
+    "Capital Expenditures": [
+      "reserve",
+      "provision",
+      "allowance",
+      "accrual"
+    ],
+    "Interest": [
+      "interest income",
+      "interest revenue"
+    ],
+    "Revenue": [
+      "expense",
+      "cost",
+      "expenditure",
+      "payable"
+    ],
+    "Costs of Goods Sold": [
+      "revenue",
+      "sales",
+      "income"
+    ],
+    "Short-term Liabilities": [
+      "long term",
+      "long-term",
+      "lt ",
+      "non current"
+    ],
+    "Long-term Liabilities": [
+      "short term",
+      "short-term",
+      "st ",
+      "current liabilities"
+    ],
+    "Receivables": [
+      "payable",
+      "payables",
+      "creditor"
+    ],
+    "Payables": [
+      "receivable",
+      "receivables",
+      "debtor"
+    ],
+    "Debt": [
+      "receivable",
+      "payable",
+      "provision",
+      "bad debt"
+    ]
+  },
+
+  "required_token_rules": {
+    "Deferred Tax Assets": [
+      ["deferred", "tax"],
+      ["tax", "asset"],
+      ["deferred", "asset"],
+      ["dta"]
+    ],
+    "Total Depreciation & Amortization": [
+      ["depreciation", "amortization"],
+      ["depreciation", "and", "amortization"],
+      ["depreciation"],
+      ["amortization"],
+      ["depr", "amort"]
+    ],
+    "Costs of Goods Sold": [
+      ["cost", "goods"],
+      ["cost", "goods", "sold"],
+      ["cost", "sales"],
+      ["cogs"]
+    ],
+    "Receivables": [
+      ["accounts", "receivable"],
+      ["trade", "receivable"],
+      ["receivable"],
+      ["ar"]
+    ],
+    "Payables": [
+      ["accounts", "payable"],
+      ["trade", "payable"],
+      ["payable"],
+      ["ap"]
+    ],
+    "Tangible Assets": [
+      ["property", "plant"],
+      ["plant", "equipment"],
+      ["property", "plant", "equipment"],
+      ["tangible", "asset"],
+      ["fixed", "asset"],
+      ["ppe"]
+    ],
+    "Short-term Liabilities": [
+      ["short", "term"],
+      ["short", "liabilities"],
+      ["current", "liabilities"],
+      ["st", "liabilities"]
+    ],
+    "Long-term Liabilities": [
+      ["long", "term"],
+      ["long", "liabilities"],
+      ["non", "current"],
+      ["lt", "liabilities"]
+    ],
+    "Cash and Cash Equivalents": [
+      ["cash", "equivalents"],
+      ["cash", "and", "cash"],
+      ["cash"]
+    ],
+    "Non Operating Cash": [
+      ["non", "operating"],
+      ["restricted", "cash"],
+      ["escrowed", "cash"]
+    ],
+    "Capital Expenditures": [
+      ["capital", "expenditure"],
+      ["capital", "spending"],
+      ["capital", "investment"],
+      ["capex"]
+    ]
+  },
+
+  "financial_aliases": {
+    "Revenue": [
+      "sales",
+      "income",
+      "turnover",
+      "total revenue",
+      "gross revenue",
+      "net sales",
+      "net revenue",
+      "revenues"
+    ],
+    "Costs of Goods Sold": [
+      "cogs",
+      "cost of sales",
+      "total cogs",
+      "total cost of goods sold",
+      "total cost of sales",
+      "cost of revenue",
+      "total cost of revenue",
+      "direct costs",
+      "total direct costs",
+      "product costs"
+    ],
+    "Salaries": [
+      "wages",
+      "payroll",
+      "compensation",
+      "employee costs",
+      "Salaries",
+      "Salaries, wages",
+      "total salaries",
+      "total base salaries",
+      "total compensation",
+      "total payroll",
+      "total labour cost",
+      "total labor cost",
+      "personnel expenses",
+      "Personnel",
+      "labor costs",
+      "staff costs",
+      "Staffing",
+      "staff"
+    ],
+    "Other Operating Expenses": [
+      "other operating costs",
+      "admin expenses",
+      "administrative expenses",
+      "general expenses",
+      "overhead",
+      "sg&a",
+      "total operating expense",
+      "total operating expenses",
+      "total opex",
+      "total other operating expenses",
+      "total g&a",
+      "total g&a expense",
+      "total sg&a"
+    ],
+    "Total Depreciation & Amortization": [
+      "d&a",
+      "depreciation",
+      "amortization",
+      "depreciation and amortization",
+      "total depreciation expense",
+      "total depreciation",
+      "total amortization",
+      "total depreciation and amortization",
+      "total d&a",
+      "depr and amort",
+      "depre",
+      "depr"
+    ],
+    "Interest": [
+      "interest expense",
+      "interest paid",
+      "finance costs",
+      "interest charges",
+      "Funding Costs"
+    ],
+    "Taxes": [
+      "income tax",
+      "tax expense",
+      "corporate tax",
+      "tax provision",
+      "income taxes"
+    ],
+    "Receivables": [
+      "accounts receivable",
+      "ar",
+      "trade receivables",
+      "debtors"
+    ],
+    "Inventory": [
+      "stock",
+      "inventories",
+      "goods in stock"
+    ],
+    "Payables": [
+      "accounts payable",
+      "ap",
+      "trade payables",
+      "creditors"
+    ],
+    "Capital Expenditures": [
+      "capex",
+      "total capex",
+      "total capital expenditure",
+      "total capital expenditures",
+      "capital expenditure",
+      "capital spending",
+      "capital investments",
+      "fixed asset purchases"
+    ],
+    "Debt": [
+      "borrowings",
+      "loans",
+      "debt obligations",
+      "financing"
+    ],
+    "Fundraising Plan": [
+      "fundraising",
+      "capital raise",
+      "equity raised",
+      "funding round"
+    ]
+  },
+
+  "balance_aliases": {
+    "Cash and Cash Equivalents": [
+      "cash",
+      "bank",
+      "liquid assets",
+      "cash equivalents"
+    ],
+    "Non Operating Cash": [
+      "restricted cash",
+      "escrowed cash"
+    ],
+    "Tangible Assets": [
+      "ppe",
+      "property plant equipment",
+      "fixed assets",
+      "tangible fixed assets"
+    ],
+    "Intangible Assets": [
+      "goodwill",
+      "patents",
+      "intangibles",
+      "intellectual property"
+    ],
+    "Financial Assets": [
+      "investments",
+      "securities",
+      "marketable securities"
+    ],
+    "Deferred Tax Assets": [
+      "dta",
+      "deferred tax"
+    ],
+    "Short-term Liabilities": [
+      "current liabilities",
+      "short term debt",
+      "st liabilities"
+    ],
+    "Long-term Liabilities": [
+      "lt liabilities",
+      "long term debt",
+      "non current liabilities"
+    ],
+    "Equity": [
+      "shareholders equity",
+      "stockholders equity",
+      "net worth",
+      "book value"
+    ]
+  },
+
+  "aggregation_rules": [
+    {
+      "map_to": "Other Operating Expenses",
+      "triggers": [
+        "marketing",
+        "advertising",
+        "rent",
+        "utilities",
+        "insurance",
+        "office",
+        "travel",
+        "supplies",
+        "maintenance",
+        "compliance",
+        "legal",
+        "professional fees",
+        "consulting",
+        "subscriptions"
+      ]
+    },
+    {
+      "map_to": "Salaries",
+      "triggers": [
+        "bonus",
+        "benefits",
+        "payroll tax",
+        "contractor"
+      ]
+    }
+  ],
+
+  "years": {
+    "previous": ["previous", "prev", "current", "actual", "historical", "Last year", "year 0"],
+    "y1": ["year 1", "y1", "year1", "forecast 1", "fy1"],
+    "y2": ["year 2", "y2", "year2", "forecast 2", "fy2"],
+    "y3": ["year 3", "y3", "year3", "forecast 3", "fy3"],
+    "y4": ["year 4", "y4", "year4", "forecast 4", "fy4"],
+    "y5": ["year 5", "y5", "year5", "forecast 5", "fy5"],
+    "y6": ["year 6", "y6", "year6", "forecast 6", "fy6"],
+    "y7": ["year 7", "y7", "year7", "forecast 7", "fy7"]
+  }
+}
