@@ -161,6 +161,43 @@ _RATIO_PATTERNS = [
 ]
 
 
+def _is_numeric_nonzero(val) -> bool:
+    """Return True if val is a non-zero number (or string representation of one)."""
+    if val is None:
+        return False
+    # Fast path for actual numeric types
+    try:
+        f = float(val)
+        return f != 0 and f == f  # second check excludes NaN
+    except (TypeError, ValueError):
+        pass
+    s = str(val).strip().replace(',', '').replace('$', '')
+    if s in ('', 'nan', 'None', '-'):
+        return False
+    try:
+        return float(s) != 0
+    except ValueError:
+        return False
+
+
+def _is_numeric(val) -> bool:
+    if val is None:
+        return False
+    try:
+        f = float(val)
+        return f == f  # excludes NaN
+    except (TypeError, ValueError):
+        pass
+    s = str(val).strip().replace(',', '').replace('$', '')
+    if s in ('', 'nan', 'None', '-'):
+        return False
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
 def is_ratio_row(raw_label: str) -> bool:
     """Return True if a label looks like a ratio/rate/growth row that must be skipped."""
     if not raw_label:
@@ -275,14 +312,62 @@ def map_table_rows(
         if mto and trigs:
             agg_triggers.append((mto, trigs))
     
+    # Pre-scan: for each section header (no-data row), resolve its Equidam target
+    # so that "Total" rows within that section can be mapped to the right field.
+    _TOTAL_LABELS = {'total', 'subtotal', 'sub total', 'sub-total'}
+    section_target: str | None = None   # target for the current section
+    section_section: str | None = None  # "financial" or "balance"
+
+    def _resolve_section_target(label):
+        """Return (target, section_name) if label strongly matches an Equidam field."""
+        nl = normalizer(label)
+        # Try alias preference first (exact hit)
+        tgt, sec, hit = prefer_alias(nl, pref_map_fin, pref_map_bal)
+        if hit:
+            return tgt, sec
+        # Try fuzzy against financial targets
+        fb, fs = fuzzy_best(nl, fin_targets_norm, cfg.get("required_token_rules", {}))
+        bb, bs = fuzzy_best(nl, bal_targets_norm, cfg.get("required_token_rules", {}))
+        if fs >= 80 and fs >= bs:
+            return fb, "financial"
+        if bs >= 80:
+            return bb, "balance"
+        return None, None
+
     # Iterate rows
     for idx, row in df.iterrows():
         raw_label = safe_scalar(row.get(label_col, ""))
         raw_label = str(raw_label).strip()
         if raw_label == "" or raw_label.lower() == "nan":
             continue
-        
+
         norm_label = normalizer(raw_label)
+
+        row_has_data = any(
+            _is_numeric(v)
+            for col, v in row.items()
+            if col != label_col
+        )
+
+        # Section header: no data → update section context and skip
+        if not row_has_data:
+            new_tgt, new_sec = _resolve_section_target(raw_label)
+            if new_tgt:
+                section_target = new_tgt
+                section_section = new_sec
+                logger.debug("[SECTION] '%s' → section target '%s' (%s)", raw_label, new_tgt, new_sec)
+            else:
+                # Unrecognised section header — reset so sub-rows aren't mis-assigned
+                section_target = None
+                section_section = None
+                logger.debug("[NO DATA] '%s' has no numeric values; skipping.", raw_label)
+            ignored_labels.append(raw_label)
+            continue
+
+        # "Total"-like row inside a recognised section → map directly to section target.
+        # Inject a synthetic score above auto_thr so the main scoring block is bypassed
+        # and falls through to value extraction normally.
+        _section_override = section_target and norm_label in _TOTAL_LABELS
 
         # Skip dimensionless ratio/rate/growth rows BEFORE mapping. These would
         # otherwise fuzzy-match against absolute fields like Revenue or Salaries
@@ -297,31 +382,59 @@ def map_table_rows(
             ignored_labels.append(raw_label)
             continue
         
-        # Alias preference
-        preferred_target, section, pref_hit = prefer_alias(
-            norm_label, pref_map_fin, pref_map_bal
-        )
-        
-        # Fuzzy scores
-        fin_best, fin_score = fuzzy_best(norm_label, fin_targets_norm, cfg.get("required_token_rules", {}))
-        bal_best, bal_score = fuzzy_best(norm_label, bal_targets_norm, cfg.get("required_token_rules", {}))
-        
-        # Aggregation hint
-        agg_best = None
-        agg_bonus = 0
-        for map_to, triggers in agg_triggers:
-            if any(t in norm_label for t in triggers):
-                agg_best = map_to
-                agg_bonus = 0
-                break
-        
-        # Choose target
-        if pref_hit:
+        # Section-total override: "Total" row inside a recognised section skips all
+        # fuzzy matching and maps directly to the section's target at full confidence.
+        if _section_override:
+            logger.debug("[SECTION TOTAL] '%s' → '%s' (%s) via section context",
+                         raw_label, section_target, section_section)
+            target = section_target
+            chosen_section = section_section
+            score = auto_thr
+            # Jump straight to dedup / value extraction (skip alias + fuzzy block)
+            goto_extract = True
+        else:
+            goto_extract = False
+
+        if not goto_extract:
+            # Alias preference
+            preferred_target, section, pref_hit = prefer_alias(
+                norm_label, pref_map_fin, pref_map_bal
+            )
+
+            # Fuzzy scores
+            fin_best, fin_score = fuzzy_best(norm_label, fin_targets_norm, cfg.get("required_token_rules", {}))
+            bal_best, bal_score = fuzzy_best(norm_label, bal_targets_norm, cfg.get("required_token_rules", {}))
+
+            # Aggregation hint
+            agg_best = None
+            agg_bonus = 0
+            for map_to, triggers in agg_triggers:
+                if any(t in norm_label for t in triggers):
+                    agg_best = map_to
+                    agg_bonus = 0
+                    break
+
+        _canon_prefix_boost = None
+        if not goto_extract and not pref_hit:
+            padded = norm_label + " "
+            for cname, cnorm in fin_targets_norm:
+                if len(cnorm) >= 7 and padded.startswith(cnorm + " "):
+                    _canon_prefix_boost = (cname, "financial")
+                    logger.debug("[CANON PREFIX] '%s' → '%s' (review)", raw_label, cname)
+                    break
+            if _canon_prefix_boost is None:
+                for cname, cnorm in bal_targets_norm:
+                    if len(cnorm) >= 7 and padded.startswith(cnorm + " "):
+                        _canon_prefix_boost = (cname, "balance")
+                        logger.debug("[CANON PREFIX] '%s' → '%s' (review)", raw_label, cname)
+                        break
+
+        if not goto_extract and pref_hit:
             target = preferred_target
             chosen_section = section
             score = 100
             logger.debug("[MAPPING] '%s' -> Preference hit: %s, score: %d", raw_label, target, score)
-        else:
+        elif not goto_extract:
             fin_score2 = fin_score + (
                 agg_bonus if agg_best in financial_rows and fin_best == agg_best else 0
             )
@@ -342,6 +455,13 @@ def map_table_rows(
                            bal_score2)
                 logger.debug("  Aggregation hint: %s", agg_best)
             
+            if _canon_prefix_boost is not None:
+                boost_target, boost_section = _canon_prefix_boost
+                if boost_section == "financial":
+                    fin_best, fin_score2 = boost_target, 90
+                else:
+                    bal_best, bal_score2 = boost_target, 90
+
             if fin_score2 >= bal_score2:
                 target = fin_best
                 chosen_section = "financial"
@@ -366,7 +486,8 @@ def map_table_rows(
             logger.debug("  FINAL: target=%s, section=%s, score=%d", target, chosen_section, score)
         
         # Apply exclusion patterns - penalize score if excluded terms found
-        if apply_exclusions(norm_label, target, exclusion_patterns):
+        # (skip for section-total overrides — the section already validated the target)
+        if not goto_extract and apply_exclusions(norm_label, target, exclusion_patterns):
             logger.debug("[EXCLUSION] '%s' excluded from '%s' - applying penalty", raw_label, target)
             score = max(0, score - 30)  # Heavy penalty, likely drops below threshold
         
@@ -489,6 +610,20 @@ def map_table_rows(
             else:
                 balance_values[target] = safe_add(balance_values[target], cur_val)
     
+    # Filter review items for targets already filled by auto-mapping.
+    # Aggregator targets (Other Operating Expenses, Salaries) are exempt because
+    # multiple rows legitimately sum into them. For all other targets, a review
+    # item suggesting the same target would just double-count.
+    auto_mapped_fin = {tgt for _, tgt, sec in auto_map_log if sec == "financial" and tgt not in aggregator_targets}
+    auto_mapped_bal = {tgt for _, tgt, sec in auto_map_log if sec == "balance"}
+    review = [
+        r for r in review
+        if not (
+            (r['section'] == 'financial' and r['suggested_target'] in auto_mapped_fin) or
+            (r['section'] == 'balance'   and r['suggested_target'] in auto_mapped_bal)
+        )
+    ]
+
     return {
         'financial': financial_accum,
         'balance': balance_values,

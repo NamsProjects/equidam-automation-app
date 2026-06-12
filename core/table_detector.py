@@ -135,15 +135,19 @@ def find_total_in_raw_data(df: pd.DataFrame) -> Tuple[Optional[int], Optional[in
                 for next_idx in range(start_idx, min(start_idx + 50, len(df))):
                     next_val = str(df.iloc[next_idx, col_idx]).strip().lower()
                     
-                    # Empty rows indicate end
+                    # Empty label cell indicates end of section.
+                    # Check only the label column (first few cols) — stray formula
+                    # results in other columns used to require the whole row to be blank,
+                    # causing the section boundary to be missed.
                     if next_val == '' or next_val == 'nan':
-                        # Check if next 2 rows also empty
-                        if next_idx < len(df) - 1:
-                            this_empty = df.iloc[next_idx, :].astype(str).str.strip().isin(['', 'nan']).all()
-                            if this_empty:
-                                end_idx = next_idx
-                                logger.debug("Section ends at row %d (empty)", end_idx)
-                                break
+                        label_cols_empty = all(
+                            str(df.iloc[next_idx, c]).strip() in ('', 'nan')
+                            for c in range(min(2, len(df.columns)))
+                        )
+                        if label_cols_empty:
+                            end_idx = next_idx
+                            logger.debug("Section ends at row %d (empty label cols)", end_idx)
+                            break
                     
                     # Another section header (text-only, no numbers)
                     elif looks_like_text(next_val) and not any(c.isdigit() for c in next_val):
@@ -259,15 +263,18 @@ def detect_header_and_orient(df: pd.DataFrame) -> Tuple[pd.DataFrame, int, str]:
     """Detect header row and transpose if needed. Handles sub-header labels like 'Last year'."""
     
     # STEP 1: Find header row FIRST
+    # Apply a small row-index penalty so that when scores are close, earlier rows
+    # are preferred — a banner/title row at index 0 with many unique words should
+    # not beat an actual header at index 1 that has year columns.
     top = min(10, len(df))
     best_idx, best_score = 0, -1
-    
+
     for r in range(top):
         row = df.iloc[r, :]
         txt_cnt = sum(looks_like_text(x) for x in row)
         yr_cnt = sum(looks_like_year(x) for x in row)
         uniq_cnt = len(set(str(x).strip().lower() for x in row if str(x).strip() != ""))
-        score = txt_cnt + 1.5 * yr_cnt + 0.2 * uniq_cnt
+        score = txt_cnt + 1.5 * yr_cnt + 0.2 * uniq_cnt - 0.4 * r
         if score > best_score:
             best_score = score
             best_idx = r
@@ -470,22 +477,24 @@ def detect_year_columns(columns: List[str], cfg: dict) -> Tuple[Dict[str, str], 
     if "previous" not in year_map:
         logger.debug("No PREVIOUS_YEAR_MARKER_ column found")
     
-    # STEP 2: Date-aware absolute year detection (2026, 2026E, FY2026, etc.)
-    # UPDATED PATTERN: Now matches "2026", "2026E", "2026e", "FY2026", "2026 E", etc.
+    _relative_year_re = re.compile(r'(?:year|fy|y)\s*[1-7]\b', re.IGNORECASE)
     logger.debug("STEP 2: Checking for absolute year columns with date-aware mapping...")
     for orig in columns:
         if orig.startswith("PREVIOUS_YEAR_MARKER_"):
             continue
-        
-        # Skip if already mapped
+
         if orig in year_map.values():
             continue
-        
+
+        if _relative_year_re.search(str(orig)):
+            logger.debug("STEP 2 skip '%s' — has relative year label, deferring to step 3", orig)
+            continue
+
         match = re.search(r'\b(20\d{2})\b(?:[Ee]|[\s\-\_]*[Ee])?', str(orig))
         if match:
             year_num = int(match.group(1))
             logger.debug("Found year %d in column '%s'", year_num, orig)
-            
+
             # Map based on offset from current year
             if year_num == current_year - 1:
                 if "previous" not in year_map:
@@ -523,21 +532,22 @@ def detect_year_columns(columns: List[str], cfg: dict) -> Tuple[Dict[str, str], 
                     logger.debug("✓ Mapped '%s' to 'y7' (year %d = current_year + 6)", orig, year_num)
     
     # STEP 3: Do alias matching for relative years (Y1, Y2, Year 1, Year 2, etc.)
+    # Use word-boundary regex instead of `nm in c` to prevent "y1" matching inside
+    # "fy10" or "y10" (substring false positives on longer year labels).
     logger.debug("STEP 3: Performing alias matching for relative year patterns...")
     for key, nms in aliases.items():
         if key in year_map:
             logger.debug("Skipping '%s' alias matching - already mapped", key)
             continue
-        
+
         for orig, c in cols_norm:
             if orig.startswith("PREVIOUS_YEAR_MARKER_"):
                 continue
-            
-            # Skip if this column was already mapped
+
             if orig in year_map.values():
                 continue
-                
-            if any(nm in c for nm in nms):
+
+            if any(re.search(r'(?<![a-z0-9])' + re.escape(nm) + r'(?![a-z0-9])', c) for nm in nms):
                 year_map[key] = orig
                 logger.debug("✓ Mapped '%s' to '%s' via alias matching", orig, key)
                 break
@@ -550,8 +560,13 @@ def detect_year_columns(columns: List[str], cfg: dict) -> Tuple[Dict[str, str], 
         for orig in columns:
             if orig.startswith("PREVIOUS_YEAR_MARKER_"):
                 continue
-            # Skip the label column (usually 'FieldName', 'index', or first column)
+            # Skip known label column names
             if str(orig).lower() in ['fieldname', 'index', 'field', 'label', 'item']:
+                continue
+            # Skip columns whose header is a long sentence — those are label/title columns,
+            # not year columns (year headers are always short: "Year 1", "2025", "Y1", etc.)
+            if len(str(orig).split()) > 4:
+                logger.debug("Skipping '%s' as y1 fallback — too many words (likely label column)", orig)
                 continue
             if orig in year_map.values():
                 continue
@@ -560,7 +575,17 @@ def detect_year_columns(columns: List[str], cfg: dict) -> Tuple[Dict[str, str], 
             break
     else:
         logger.debug("y1 already mapped to '%s'", year_map['y1'])
-    
+
+    # STEP 5: If y1 is still missing but higher years exist, shift them down.
+    # This happens when the sheet labels columns "Year 2", "Year 3" ... starting at
+    # the first forecast column (the "Year 1" slot is occupied by the previous-year
+    # column, so the alias match puts "Year 2" → y2 rather than y1).
+    if "y1" not in year_map:
+        for src_key, dst_key in [("y2","y1"),("y3","y2"),("y4","y3"),("y5","y4"),("y6","y5"),("y7","y6")]:
+            if src_key in year_map:
+                year_map[dst_key] = year_map.pop(src_key)
+        logger.debug("Shifted year_map down because y1 was missing: %s", year_map)
+
     # Count how many forecast years we found
     years_used = 0
     for k in ["y1", "y2", "y3", "y4", "y5", "y6", "y7"]:

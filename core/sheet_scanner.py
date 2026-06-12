@@ -173,8 +173,8 @@ def scan_sheet_for_fields(
             # Try fuzzy match
             best_match, score = fuzzy_best(norm_label, targets_norm)
             
-            # Accept if score is decent (lower threshold for scanning)
-            if score >= 70 and best_match not in detected_fields:
+            # Accept if score meets the same floor as the main importer's review_min
+            if score >= 75 and best_match not in detected_fields:
                 detected_fields.append(best_match)
         
         return {

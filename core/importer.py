@@ -148,6 +148,7 @@ def import_any(
     """
     options = options or {}
     has_previous_year = options.get("has_previous_year", False)
+    previous_year_count = options.get("previous_year_count", 1 if has_previous_year else 0)
     
     try:
         cfg = load_aliases(aliases_json_path)
@@ -236,12 +237,78 @@ def import_any(
             traceback.print_exc()
         return _empty_result(notes + [f"Year detection failed: {e}"])
     
+    # User-specified column split: the user says "N historical years" meaning the
+    # first N detected year columns are actuals; everything after is forecast.
+    # We use the columns that detect_year_columns already found (reliable, avoids
+    # phantom columns from merged cells / sub-headers), then split by the user count.
+    # If detection found too few columns we fall back to a positional scan.
+    if previous_year_count >= 0:
+        # Collect detected year columns in original left-to-right sheet order
+        detected_order = ["previous"] + [f"y{i}" for i in range(1, 8)]
+        detected_cols = [year_map[k] for k in detected_order if k in year_map]
+
+        # If detection missed some data columns (e.g. years outside current_year±n
+        # range), append any remaining numeric columns in sheet order.
+        detected_set = set(detected_cols)
+
+        def _is_data_col(col):
+            """True if column has at least one numeric (non-text) value."""
+            vals = df[col].dropna()
+            if len(vals) == 0:
+                return False
+            for v in vals:
+                try:
+                    float(v)
+                    return True
+                except (TypeError, ValueError):
+                    s = str(v).strip().replace(',', '').replace('$', '').replace('%', '')
+                    try:
+                        float(s)
+                        return True
+                    except ValueError:
+                        pass
+            return False
+
+        for col in df.columns:
+            if col not in detected_set and _is_data_col(col):
+                # Insert in correct positional order (before first detected col
+                # that appears after it in df.columns)
+                col_pos = list(df.columns).index(col)
+                insert_at = len(detected_cols)
+                for i, dc in enumerate(detected_cols):
+                    try:
+                        dc_pos = list(df.columns).index(dc)
+                        if col_pos < dc_pos:
+                            insert_at = i
+                            break
+                    except ValueError:
+                        pass
+                detected_cols.insert(insert_at, col)
+                detected_set.add(col)
+
+        # Split: first N → historical, rest → forecast
+        hist_cols = detected_cols[:previous_year_count]
+        forecast_cols = detected_cols[previous_year_count:]
+
+        new_year_map = {}
+        if hist_cols:
+            new_year_map["previous"] = hist_cols[-1]  # most recent historical year
+
+        for i, col in enumerate(forecast_cols[:5], start=1):
+            new_year_map[f"y{i}"] = col
+
+        year_map = new_year_map
+        years_used = sum(1 for k in year_map if k.startswith("y"))
+        logger.debug("User-specified %d historical year(s); rebuilt year_map: %s", previous_year_count, year_map)
+        note_prev = f"{previous_year_count} historical year(s) specified" if previous_year_count else "no historical years"
+        notes.append(f"Year columns assigned by user ({note_prev}).")
+
     # CRITICAL VALIDATION: Ensure y1 exists
     if "y1" not in year_map:
         error_msg = "Year detection failed: Could not identify Year 1 column. Please ensure your data has clear year labels (Y1, Year 1, 2025, etc.)."
         logger.error(error_msg)
         return _empty_result(notes + [error_msg])
-    
+
     # Adjust year mapping based on user selection
     if not has_previous_year and "previous" in year_map:
         # User says no previous year, but the detector mapped one (typically because

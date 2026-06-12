@@ -75,7 +75,7 @@ class InfoPanel(ttk.Frame):
 
         self._label(
             self.content_frame,
-            "Welcome to Equidam Projections Uploader",
+            "Welcome to Excel Financial Data Aggregator",
             color=COLORS["text"],
             font=FONTS["h2"],
             anchor="w", pady=(0, 6),
@@ -146,6 +146,61 @@ class InfoPanel(ttk.Frame):
             btn_frame, text="NO", command=on_no, width=16
         ).pack(side="left")
     
+    def show_historical_years_question(self, on_confirm):
+        """
+        Ask how many historical/previous years are in the data.
+        Calls on_confirm(n: int) where n=0 means all columns are forecasts.
+        """
+        self._clear_content()
+
+        self._label(
+            self.content_frame,
+            "How many historical years does your data include?",
+            color=COLORS["text"],
+            font=FONTS["h2"],
+            anchor="w", pady=(0, 6),
+        )
+        self._label(
+            self.content_frame,
+            "Historical columns come first (left-most). Remaining columns are treated as forecast years.",
+            color=COLORS["text_muted"],
+            font=FONTS["small"],
+            anchor="w", pady=(0, 14),
+        )
+
+        row_frame = tk.Frame(self.content_frame, background=COLORS["surface"])
+        row_frame.pack(anchor="w")
+
+        self._label(row_frame, "Number of historical years:", anchor="w").pack(side="left", padx=(0, 10))
+
+        var = tk.StringVar(value="1")
+        spinbox = ttk.Spinbox(row_frame, from_=0, to=10, width=6, textvariable=var)
+        spinbox.pack(side="left")
+
+        self._label(
+            self.content_frame,
+            "• 0 = no historical data, all columns are forecasts\n"
+            "• 1 = first column is last year's actuals\n"
+            "• 2 = first two columns are historical (only the most recent is used as Prev Y)",
+            color=COLORS["text_muted"],
+            font=FONTS["small"],
+            anchor="w", pady=(10, 0),
+        )
+
+        btn_frame = tk.Frame(self.content_frame, background=COLORS["surface"])
+        btn_frame.pack(anchor="w", pady=(16, 0))
+
+        def handle_confirm():
+            try:
+                n = int(var.get())
+            except ValueError:
+                n = 0
+            on_confirm(max(0, n))
+
+        ttk.Button(
+            btn_frame, text="Continue", command=handle_confirm, width=16, style="Accent.TButton"
+        ).pack(side="left")
+
     def show_sheet_selector(self, sheets, on_continue, on_cancel):
         """Show sheet selection with checkboxes."""
         self._clear_content()
@@ -365,14 +420,17 @@ class InfoPanel(ttk.Frame):
             anchor="w", pady=(0, 10),
         )
 
+        scroll_container = tk.Frame(self.content_frame, background=COLORS["surface"])
+        scroll_container.pack(fill="both", expand=True)
+
         canvas = tk.Canvas(
-            self.content_frame,
+            scroll_container,
             height=300,
             background=COLORS["surface"],
             highlightthickness=0,
             borderwidth=0,
         )
-        scrollbar = ttk.Scrollbar(self.content_frame, orient="vertical", command=canvas.yview)
+        scrollbar = ttk.Scrollbar(scroll_container, orient="vertical", command=canvas.yview)
         scrollable_frame = tk.Frame(canvas, background=COLORS["surface"])
 
         scrollable_frame.bind(
@@ -383,11 +441,15 @@ class InfoPanel(ttk.Frame):
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
 
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
         radio_vars = {}
 
         for field_name, conflict_data in conflicts.items():
             field_type = conflict_data.get('type', 'financial')
             sheet_data = conflict_data.get('sheets', {})
+            source_labels = conflict_data.get('source_labels', {})
 
             field_frame = ttk.LabelFrame(
                 scrollable_frame,
@@ -415,8 +477,9 @@ class InfoPanel(ttk.Frame):
                 else:
                     formatted = f"Current: {self._format_value(values)}"
 
-                is_default = (sheet_name == default_sheet)
-                display_text = f"{sheet_name}:  {formatted}" + ("   (recommended)" if is_default else "")
+                src = source_labels.get(sheet_name)
+                src_part = f'"{src}"  ·  ' if src and src != field_name else ""
+                display_text = f"{sheet_name}:  {src_part}{formatted}"
 
                 ttk.Radiobutton(
                     field_frame,
@@ -424,9 +487,6 @@ class InfoPanel(ttk.Frame):
                     variable=var,
                     value=sheet_name,
                 ).pack(anchor="w", pady=2)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
 
         btn_frame = tk.Frame(self.content_frame, background=COLORS["surface"])
         btn_frame.pack(anchor="w", pady=(14, 0))

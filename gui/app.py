@@ -30,7 +30,7 @@ class EquidamApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("Equidam Projections Uploader")
+        self.title("Excel Financial Data Aggregator")
         self.geometry("1440x780")
         self.minsize(1100, 640)
 
@@ -96,7 +96,7 @@ class EquidamApp(tk.Tk):
 
         ttk.Label(
             title_block,
-            text="Equidam Projections Uploader",
+            text="Excel Financial Data Aggregator",
             style="H1.TLabel",
         ).pack(anchor="w")
 
@@ -414,20 +414,14 @@ class EquidamApp(tk.Tk):
                 "info"
             )
         
-        # Ask about previous year structure (in panel, not popup)
-        self.info_panel.show_yes_no_question(
-            question="Does your data include a 'Previous Year' column?",
-            on_yes=lambda: self._continue_import_with_previous(True),
-            on_no=lambda: self._continue_import_with_previous(False),
-            details=[
-                "Select YES if your first data column is previous/historical year",
-                "Select NO if all columns are forecasts only (Year 1, Year 2, etc.)"
-            ]
+        # Ask how many historical years are in the data
+        self.info_panel.show_historical_years_question(
+            on_confirm=self._continue_import_with_previous
         )
 
-    def _continue_import_with_previous(self, has_previous):
-        """Step 4: User answered previous year question, now process the import."""
-        self.has_previous = has_previous
+    def _continue_import_with_previous(self, previous_year_count: int):
+        """Step 4: User specified historical year count, now process the import."""
+        self.has_previous = previous_year_count > 0
         
         # Show processing message
         self.info_panel.show_message("⚙ Processing data...", "info")
@@ -450,7 +444,8 @@ class EquidamApp(tk.Tk):
         try:
             # Import the data
             options = {
-                "has_previous_year": has_previous,
+                "has_previous_year": previous_year_count > 0,
+                "previous_year_count": previous_year_count,
                 "sheet_name": self.selected_sheets[0]
             }
             
@@ -474,12 +469,12 @@ class EquidamApp(tk.Tk):
             self.fin_manager.fill_grid(
                 res.get("financial", {}),
                 years_used,
-                has_previous
+                self.has_previous
             )
             self.bal_manager.fill_grid(res.get("balance", {}))
 
             # Show feedback (may include review items)
-            self._show_import_feedback(res, has_previous)
+            self._show_import_feedback(res, self.has_previous)
 
         except Exception as e:
             logger.error("Import failed: %s", e)
@@ -505,20 +500,14 @@ class EquidamApp(tk.Tk):
             "info"
         )
         
-        # Ask about previous year structure
-        self.info_panel.show_yes_no_question(
-            question="Does your data include a 'Previous Year' column?",
-            on_yes=lambda: self._execute_multi_sheet_scan(True),
-            on_no=lambda: self._execute_multi_sheet_scan(False),
-            details=[
-                "Select YES if your first data column is previous/historical year",
-                "Select NO if all columns are forecasts only (Year 1, Year 2, etc.)"
-            ]
+        # Ask how many historical years are in the data
+        self.info_panel.show_historical_years_question(
+            on_confirm=self._execute_multi_sheet_scan
         )
-    
-    def _execute_multi_sheet_scan(self, has_previous):
+
+    def _execute_multi_sheet_scan(self, previous_year_count: int):
         """Step 4 (Multi): Execute multi-sheet scan and handle results."""
-        self.has_previous = has_previous
+        self.has_previous = previous_year_count > 0
         
         # Show processing message
         self.info_panel.show_message(
@@ -544,7 +533,10 @@ class EquidamApp(tk.Tk):
         
         try:
             # Execute multi-sheet scan
-            options = {"has_previous_year": has_previous}
+            options = {
+                "has_previous_year": previous_year_count > 0,
+                "previous_year_count": previous_year_count,
+            }
             
             scan_result = scan_multiple_sheets(
                 path=self.import_path,
@@ -555,10 +547,14 @@ class EquidamApp(tk.Tk):
             
             # Store for conflict resolution
             self.last_scan_result = scan_result
-            
+
+            # Populate the grid immediately with auto-mapped (no-conflict) data so
+            # the user sees results right away, regardless of what dialogs follow.
+            self._apply_scan_results(scan_result, {})
+
             # CRITICAL FIX: Check for REVIEW ITEMS FIRST (before conflicts)
             review_items = scan_result.get('review_items', [])
-            
+
             if review_items:
                 logger.debug("[GUI] Found %d review items - showing review dialog", len(review_items))
                 
@@ -687,12 +683,12 @@ class EquidamApp(tk.Tk):
     def _check_conflicts_or_apply(self, scan_result):
         """Step 5 (Multi): Check for conflicts, or apply results if none."""
         conflict_count = scan_result['metadata']['conflict_count']
-        
         if conflict_count > 0:
-            # Show conflict resolution dialog
+            # Grid already populated with no-conflict data; show dialog to resolve
+            # conflicted field(s), then _on_conflicts_resolved re-fills with winner.
             self._show_conflict_resolution(scan_result)
         else:
-            # No conflicts - apply results directly
+            # Re-apply to ensure the grid reflects the final state cleanly.
             self._apply_scan_results(scan_result, {})
     
     def _show_conflict_resolution(self, scan_result):
@@ -705,16 +701,20 @@ class EquidamApp(tk.Tk):
         
         # Financial conflicts
         for field, sheet_data in conflicts.items():
+            source_labels = sheet_data.get('_source_labels', {})
             all_conflicts[field] = {
                 'type': 'financial',
-                'sheets': sheet_data
+                'sheets': {k: v for k, v in sheet_data.items() if k != '_source_labels'},
+                'source_labels': source_labels,
             }
-        
+
         # Balance conflicts
         for field, sheet_data in balance_conflicts.items():
+            source_labels = sheet_data.get('_source_labels', {})
             all_conflicts[field] = {
                 'type': 'balance',
-                'sheets': sheet_data
+                'sheets': {k: v for k, v in sheet_data.items() if k != '_source_labels'},
+                'source_labels': source_labels,
             }
         
         # Show conflict dialog in panel
@@ -847,7 +847,7 @@ class EquidamApp(tk.Tk):
             self.fin_manager.fill_grid(
                 updated_fin,
                 self.last_import_result["years_used"],
-                has_previous
+                self.has_previous
             )
             self.bal_manager.fill_grid(updated_bal)
             

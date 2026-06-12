@@ -42,6 +42,9 @@
   ],
 
   "exclusion_patterns": {
+    "Other Operating Expenses": [
+      "total"
+    ],
     "Taxes": [
       "compliance",
       "kyc",
@@ -223,14 +226,7 @@
       "administrative expenses",
       "general expenses",
       "overhead",
-      "sg&a",
-      "total operating expense",
-      "total operating expenses",
-      "total opex",
-      "total other operating expenses",
-      "total g&a",
-      "total g&a expense",
-      "total sg&a"
+      "sg&a"
     ],
     "Total Depreciation & Amortization": [
       "d&a",

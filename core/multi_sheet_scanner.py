@@ -67,8 +67,10 @@ def scan_multiple_sheets(
     options = options or {}
     
     # Initialize data structures
-    discovered_financial = {}  # {field_name: {sheet_name: [y1, y2, ...]}}
-    discovered_balance = {}    # {field_name: {sheet_name: value}}
+    discovered_financial = {}       # {field_name: {sheet_name: [y1, y2, ...]}}
+    discovered_balance = {}         # {field_name: {sheet_name: value}}
+    discovered_fin_labels = {}      # {field_name: {sheet_name: source_label}}
+    discovered_bal_labels = {}      # {field_name: {sheet_name: source_label}}
     all_review_items = []      # Review items from all sheets
     intermediate_data = {}     # Store intermediate data for manual mapping
     scan_notes = []
@@ -97,29 +99,35 @@ def scan_multiple_sheets(
                 'applied_mappings': result.get('applied_mappings', [])  # ✅ ADD applied_mappings!
             }
             
+            # Build a target→source_label lookup from this sheet's applied mappings
+            applied = result.get('applied_mappings', [])
+            label_for_target = {m['target']: m['source'] for m in applied}
+
             # Extract financial data
             financial_data = result.get('financial', {})
             for field, values in financial_data.items():
                 # Skip if no meaningful values
                 if not values or _is_empty_series(values):
                     continue
-                
-                # Store this sheet's data for this field
+
                 if field not in discovered_financial:
                     discovered_financial[field] = {}
+                    discovered_fin_labels[field] = {}
                 discovered_financial[field][sheet_name] = values
-            
+                discovered_fin_labels[field][sheet_name] = label_for_target.get(field, field)
+
             # Extract balance data
             balance_data = result.get('balance', {})
             for field, value in balance_data.items():
                 # Skip if no meaningful value
                 if value is None or value == "" or value == 0:
                     continue
-                
-                # Store this sheet's data for this field
+
                 if field not in discovered_balance:
                     discovered_balance[field] = {}
+                    discovered_bal_labels[field] = {}
                 discovered_balance[field][sheet_name] = value
+                discovered_bal_labels[field][sheet_name] = label_for_target.get(field, field)
             
             # CRITICAL FIX: Collect review items from this sheet
             review_items = result.get('review', [])
@@ -174,27 +182,64 @@ def scan_multiple_sheets(
                 sheets_str = ", ".join(sheet_data.keys())
                 logger.debug("[MULTI-SHEET SCAN] '%s': No conflict (identical across %s)", field, sheets_str)
             else:
-                # Different values → conflict!
-                fin_conflicts[field] = sheet_data
+                # Different values → conflict! Include source labels for display.
+                fin_conflicts[field] = {
+                    '_source_labels': discovered_fin_labels.get(field, {}),
+                    **sheet_data,
+                }
                 sheets_str = ", ".join(sheet_data.keys())
                 logger.debug("[MULTI-SHEET SCAN] '%s': CONFLICT (%s)", field, sheets_str)
-    
+
     # Same for balance sheet
     bal_conflicts = {}
     bal_no_conflict = {}
-    
+
     for field, sheet_data in discovered_balance.items():
         if len(sheet_data) == 1:
             sheet_name = list(sheet_data.keys())[0]
             bal_no_conflict[field] = sheet_data[sheet_name]
         else:
             all_values = list(sheet_data.values())
-            
+
             if _all_identical(all_values, is_balance=True):
                 bal_no_conflict[field] = all_values[0]
             else:
-                bal_conflicts[field] = sheet_data
+                bal_conflicts[field] = {
+                    '_source_labels': discovered_bal_labels.get(field, {}),
+                    **sheet_data,
+                }
     
+    # Step 2b: Filter review items for targets already filled by auto-mapping across
+    # any sheet. A review suggestion for Revenue is useless (and would double-count)
+    # if Revenue was already auto-mapped from another sheet.
+    filled_fin = set(fin_no_conflict.keys())
+    filled_bal = set(bal_no_conflict.keys())
+    pre_filter_count = len(all_review_items)
+    all_review_items = [
+        r for r in all_review_items
+        if not (
+            (r['section'] == 'financial' and r['suggested_target'] in filled_fin) or
+            (r['section'] == 'balance'   and r['suggested_target'] in filled_bal)
+        )
+    ]
+    dropped = pre_filter_count - len(all_review_items)
+    if dropped:
+        logger.info("[MULTI-SHEET SCAN] Dropped %d review items for already-filled targets", dropped)
+
+    # Deduplicate: if multiple sheets flagged the same target with the same
+    # confidence, only keep one entry — the user only needs to approve it once.
+    seen_review = set()
+    deduped = []
+    for r in all_review_items:
+        key = (r['suggested_target'], r['section'], r['confidence'])
+        if key not in seen_review:
+            seen_review.add(key)
+            deduped.append(r)
+    if len(deduped) < len(all_review_items):
+        logger.info("[MULTI-SHEET SCAN] Deduplicated %d duplicate review items",
+                    len(all_review_items) - len(deduped))
+    all_review_items = deduped
+
     # Step 3: Build metadata
     all_fields_found = set(discovered_financial.keys()) | set(discovered_balance.keys())
     conflict_count = len(fin_conflicts) + len(bal_conflicts)
