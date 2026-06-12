@@ -167,7 +167,7 @@ class EquidamApp(tk.Tk):
         ttk.Label(export_row, text="Output file", style="Muted.TLabel").pack(side="left", padx=(0, 8))
 
         self.output_path_var = tk.StringVar(
-            value=str(Path.home() / "equidam_output.xlsx")
+            value=str(Path.home() / "output.xlsx")
         )
         ttk.Entry(
             export_row,
@@ -235,7 +235,7 @@ class EquidamApp(tk.Tk):
 
     def _choose_output_path(self):
         """Choose where the formatted Equidam workbook will be exported."""
-        current_path = Path(self.output_path_var.get().strip() or Path.home() / "equidam_output.xlsx")
+        current_path = Path(self.output_path_var.get().strip() or Path.home() / "output.xlsx")
         output_path = filedialog.asksaveasfilename(
             title="Export Formatted Equidam Excel As",
             defaultextension=".xlsx",
