@@ -69,8 +69,6 @@ BALANCE_ROWS: List[str] = [
     "Equity",
 ]
 
-MAX_FORECAST = 5  # Keep at 5 for now (ignoring y6/y7 support)
-
 @dataclass
 class ImportResult:
     financial: Dict[str, List[Optional[float]]]

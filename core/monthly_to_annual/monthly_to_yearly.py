@@ -469,28 +469,6 @@ def _detect_vertical_months(df: pd.DataFrame, month_names: List[str], month_abbr
 
 
 # =========================
-# Validation (ORIGINAL)
-# =========================
-def _validate_months(detection: dict) -> dict:
-    """Original validation function - kept for backward compatibility"""
-    if not detection.get('found'):
-        return {'valid': False, 'error': 'No pattern detected'}
-
-    month_numbers = detection['month_numbers']
-    if not month_numbers or month_numbers[0] != 1:
-        return {'valid': False, 'error': 'Months must start at 1'}
-
-    for i in range(len(month_numbers) - 1):
-        if month_numbers[i + 1] != month_numbers[i] + 1:
-            return {'valid': False, 'error': f"Missing Month {month_numbers[i] + 1} - months must be consecutive"}
-
-    if len(month_numbers) < 12:
-        return {'valid': False, 'error': f"Need at least 12 consecutive months (found {len(month_numbers)})"}
-
-    return {'valid': True}
-
-
-# =========================
 # Aggregation (ORIGINAL - for fallback)
 # =========================
 def _aggregate_to_years(df: pd.DataFrame, detection: dict) -> Tuple[pd.DataFrame, dict]:

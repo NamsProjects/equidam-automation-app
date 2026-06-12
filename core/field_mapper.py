@@ -161,25 +161,6 @@ _RATIO_PATTERNS = [
 ]
 
 
-def _is_numeric_nonzero(val) -> bool:
-    """Return True if val is a non-zero number (or string representation of one)."""
-    if val is None:
-        return False
-    # Fast path for actual numeric types
-    try:
-        f = float(val)
-        return f != 0 and f == f  # second check excludes NaN
-    except (TypeError, ValueError):
-        pass
-    s = str(val).strip().replace(',', '').replace('$', '')
-    if s in ('', 'nan', 'None', '-'):
-        return False
-    try:
-        return float(s) != 0
-    except ValueError:
-        return False
-
-
 def _is_numeric(val) -> bool:
     if val is None:
         return False
