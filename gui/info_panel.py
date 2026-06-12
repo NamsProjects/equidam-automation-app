@@ -75,7 +75,7 @@ class InfoPanel(ttk.Frame):
 
         self._label(
             self.content_frame,
-            "Welcome to Excel Financial Data Aggregator",
+            "Welcome to Financial Data Aggregator",
             color=COLORS["text"],
             font=FONTS["h2"],
             anchor="w", pady=(0, 6),

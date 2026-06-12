@@ -30,7 +30,7 @@ class EquidamApp(tk.Tk):
     def __init__(self):
         super().__init__()
 
-        self.title("Excel Financial Data Aggregator")
+        self.title("Financial Data Aggregator")
         self.geometry("1440x780")
         self.minsize(1100, 640)
 
@@ -96,7 +96,7 @@ class EquidamApp(tk.Tk):
 
         ttk.Label(
             title_block,
-            text="Excel Financial Data Aggregator",
+            text="Financial Data Aggregator",
             style="H1.TLabel",
         ).pack(anchor="w")
 
